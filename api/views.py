@@ -10,9 +10,11 @@ import string
 import dazer
 import pandas as pd
 from django.http import HttpResponseBadRequest
-from api import models
+from api import models, serializers
+import json
 
-ATTEMPTS = 100
+
+ATTEMPTS = 300
 
 
 def generate_id(size):
@@ -34,34 +36,91 @@ def get_session_subsample_test_folder(session, filename, subsample_id):
 def get_session_subsample_train_folder(session, filename, subsample_id):
     return os.path.join("_sessions", session, 'subsamples', filename, subsample_id, 'train')
 
+def get_model_folder(session, filename, subsample_id):
+    return os.path.join("_sessions", session, 'models', filename, subsample_id, 'train')
+
 def read_file(filename):
     df = pd.read_csv(filename, index_col=0, sep='\t')
     return df
+
+def write_file(df, filename):
+    df.to_csv(filename, sep='\t')
+    return
+
+def clean_input_dataframe(df):
+    rows_removed = 0
+    length = len(df.index)
+    # drop rows containing NA
+    df = df.dropna()
+    if length > len(df.index):
+        rows_removed = length - len(df.index)
+    return df, rows_removed
+
+def get_param_from_filename(target, filename, sep=';'):
+    filename = filename.split(os.sep)[-1]
+    # remove file ending
+    filename = filename[:filename.rfind('.')]
+    for param in filename.split(sep):
+        if '=' not in param:
+            continue
+        key, value = param.split('=')
+        if key == target:
+            return value
+    return ''
+
+def get_df_column_information(df):
+    columns = list(df.columns)
+    categorical_columns = df.columns[~df.columns.isin(df._get_numeric_data().columns)]
+    categorical_columns_values = {}
+    for col in categorical_columns:
+        categorical_columns_values[col] = df[col].dropna().unique().tolist()
+    return columns, categorical_columns_values
 
 
 @parser_classes([FileUploadParser])
 class FileUpload(APIView):
 
     def put(self, request, session, filename):
+        print(filename)
         content = request.body
         if content is None:
             return Response({})
         
-        Path(get_session_files_folder(session)).mkdir(parents=True, exist_ok=True)
+        session_obj, _ = models.Session.objects.get_or_create(session_id=session)
         
-        with open(os.path.join(get_session_files_folder(session), filename), "wb+") as destination:
+        if len(models.File.objects.filter(session=session_obj, filename=filename)):
+            # file already exists, increment filename
+            for i in range(1, ATTEMPTS+1):
+                filename_incremented = f'{filename[:-4]}{i}.tsv'
+                if not len(models.File.objects.filter(session=session_obj, filename=filename_incremented)):
+                    break
+            if i == ATTEMPTS:
+                return HttpResponseBadRequest('Filename already taken.')
+            filename = filename_incremented
+        
+        Path(get_session_files_folder(session)).mkdir(parents=True, exist_ok=True)
+        file_path = os.path.join(get_session_files_folder(session), filename)
+        
+        print(file_path)
+        
+        with open(file_path, "wb+") as destination:
             destination.write(content)
             
         try:
-            df = read_file(os.path.join(get_session_files_folder(session), filename))
+            df = read_file(file_path)
+            df, rows_removed = clean_input_dataframe(df)
+            columns, categorical_columns_values = get_df_column_information(df)
+            print(columns, categorical_columns_values )
+            write_file(df, file_path)
         except:
             return HttpResponseBadRequest('Could not read file.')
         
         # create session instance on file upload
-        session_obj, created = models.Session.objects.get_or_create(session_id=session)
         try:
-            models.File.objects.create(session=session_obj, filename=filename)
-        except:
+            models.File.objects.create(session=session_obj, filename=filename, rows_removed=rows_removed, columns=json.dumps(columns), categorical_columns_values=json.dumps(categorical_columns_values))
+        except Exception as e:
+            print(e)
+            print('Could not create file object')
             # file already exists for this session
             return HttpResponseBadRequest('File already exists.')
         
@@ -70,15 +129,15 @@ class FileUpload(APIView):
 
 class FileColumns(APIView):
     def get(self, request, session, filename):
-        session_files_folder = get_session_files_folder(session)
-        df = read_file(os.path.join(session_files_folder, filename))
-        columns = df.columns
-        
-        categorical_columns = df.columns[~df.columns.isin(df._get_numeric_data().columns)]
-        unique_values = {}
-        for col in categorical_columns:
-            unique_values[col] = df[col].dropna().unique().tolist()
-        return Response({'columns': columns, 'categoricalColumns': unique_values})
+        file_obj = models.File.objects.get(session__session_id=session, filename=filename)
+        return Response({'columns': json.loads(file_obj.columns), 'categorical_columns_values': json.loads(file_obj.categorical_columns_values)})
+    
+
+class FileColumnsSubsample(APIView):
+    def get(self, request, subsample_id):
+        subsample_obj = models.Subsampling.objects.get(subsample_id=subsample_id)
+        file_obj = subsample_obj.file
+        return Response({'columns': json.loads(file_obj.columns), 'categorical_columns_values': json.loads(file_obj.categorical_columns_values)})
 
 
 class SessionId(APIView):
@@ -102,11 +161,12 @@ class SessionFiles(APIView):
     def get(self, request, session):
         session_files_folder = get_session_files_folder(session)
         if not os.path.isdir(session_files_folder):
-            return Response({'sessionFiles': [], 'subsampleData': subsample_data})
-        session_files = os.listdir(session_files_folder)
+            return Response({'sessionFiles': [], 'subsampleData': {}})
+        file_obj_list = models.File.objects.filter(session__session_id=session)
+        session_files = serializers.FileSerializer(many=True).to_representation(file_obj_list)
         
         subsample_data = {}
-        for filename in session_files:
+        for filename in os.listdir(session_files_folder):
             session_subsamples_folder = get_session_subsample_folder(session)
             if os.path.isdir(os.path.join(session_subsamples_folder, filename)):
                 subsample_data[filename] = os.listdir(os.path.join(session_subsamples_folder, filename))
@@ -121,17 +181,11 @@ class Subsample(APIView):
         session_obj = models.Session.objects.get(session_id=session)
         file_obj = models.File.objects.get(session=session_obj, filename=filename)
         
-        target_column = request.data.get('targetCol')
-        # target_value = request.POST.get('targetVal')
         keep_ratio_columns = request.data.get('keepRatioColumns')
-        
-        if target_column not in keep_ratio_columns:
-            keep_ratio_columns.append(target_column)
-
         ratio = request.data.get('ratio')
         
         attempts = 100
-        ratios = [.2, .3, .4, .5, .6, .7, .8, .9, 1]
+        ratios = [.2, .6, 1]
         
         #### move this to standalone task
         session_files_folder = get_session_files_folder(session)
@@ -148,26 +202,23 @@ class Subsample(APIView):
         Path(folder_test).mkdir(parents=True, exist_ok=True)
         
         df = read_file(os.path.join(get_session_files_folder(session), filename))
-        subsampler = dazer.Subsampler(df, target_column, keep_ratio_columns, allowed_deviation=0.9)
+        subsampler = dazer.Subsampler(df, keep_ratio_columns, allowed_deviation=0.9)
         for random_state in range(1, attempts+1):
-            try:
-                df_test = subsampler.extract_test(test_size=0.2, random_state=random_state)
+            df_test = subsampler.extract_test(test_size=0.2, random_state=random_state)
+            if df_test is not None:
                 break
-            except Exception as e:
-                print(e)
-                continue
-        df_test.to_csv(os.path.join(folder_test, f'type=test;ratio={str(ratio)};seed={random_state}.tsv'), sep='\t')
+        df_test.to_csv(os.path.join(folder_test, f'type=test;ratio={str(ratio)};random_state={random_state}.tsv'), sep='\t')
         
         folder_train = get_session_subsample_train_folder(session, filename, subsample_id)
         Path(folder_train).mkdir(parents=True, exist_ok=True)
         
         for random_state in range(1, attempts+1):
             for ratio in ratios:
-                try:
-                    df_train = subsampler.subsample(ratio, random_state)
-                except:
-                    continue
-                df_train.to_csv(os.path.join(folder_train, f'type=train;ratio={str(ratio)};seed={random_state}.tsv'), sep='\t')
+                df_train = subsampler.subsample(ratio, random_state)
+                if df_train is None:
+                    # jump to next random state
+                    break
+                df_train.to_csv(os.path.join(folder_train, f'type=train;ratio={str(ratio)};random_state={random_state}.tsv'), sep='\t')
             if ratio == 1:
                 break
         ### END move this to standalone task
@@ -180,11 +231,10 @@ class Subsample(APIView):
             session=session_obj, 
             file=file_obj, 
             subsample_id=subsample_id,
-            target_column=target_column,
-            keep_ratio_columns='\t'.join(keep_ratio_columns)
+            keep_ratio_columns=json.dumps(keep_ratio_columns)
             )
             
-        return Response({'test_file': test_file, 'train_files': train_files})
+        return Response({'testFile': test_file, 'trainFiles': train_files})
         
 
 class SubsampleResult(APIView):
@@ -195,10 +245,7 @@ class SubsampleResult(APIView):
         session_id = subsample_obj.session.session_id
         filename = subsample_obj.file.filename
         
-        print('session_id', session_id)
-        print('filename', filename)
-        
-        keep_ratio_columns = subsample_obj.keep_ratio_columns.split('\t')
+        keep_ratio_columns = json.loads(subsample_obj.keep_ratio_columns)
         
         # train data
         ratios = {}
@@ -211,9 +258,9 @@ class SubsampleResult(APIView):
         data = {}
         for ratio, path in ratios.items():
             df = read_file(os.path.join(folder_train, path))
-            data[f'train_{ratio}'] = {}
+            data[f'train:{ratio}'] = {}
             for col in keep_ratio_columns:
-                data[f'train_{ratio}'][col] = df[col].value_counts().to_dict()
+                data[f'train:{ratio}'][col] = df[col].value_counts().to_dict()
                     
         # test data
         folder_test = get_session_subsample_test_folder(session_id, filename, subsample_id)
@@ -224,9 +271,9 @@ class SubsampleResult(APIView):
             if key == 'ratio':
                 test_ratio = value
         df = read_file(os.path.join(folder_test, file))
-        data[f'test_{test_ratio}'] = {}
+        data[f'test:{test_ratio}'] = {}
         for col in keep_ratio_columns:
-            data[f'test_{test_ratio}'][col] = df[col].value_counts().to_dict()
+            data[f'test:{test_ratio}'][col] = df[col].value_counts().to_dict()
         
         # reformat data for plotting
         data_reformat = {col: {} for col in keep_ratio_columns}
@@ -235,11 +282,16 @@ class SubsampleResult(APIView):
                 if 'test' in ratio_category:
                     data_reformat[keep_ratio_col][ratio_category] = value_counts
                 else:
-                    ratio = ratio_category.split('_')[1]
+                    ratio = ratio_category.split(':')[1]
                     data_reformat[keep_ratio_col][ratio] = value_counts
+        
+        # get categorical columns
+        categorical_columns = df.columns[~df.columns.isin(df._get_numeric_data().columns)]
+        unique_values = {}
+        for col in categorical_columns:
+            unique_values[col] = df[col].dropna().unique().tolist()
                     
-        return Response({'data': data_reformat, 'filename': filename, 'keepRatioColumns': keep_ratio_columns, 'ratios': ratios.keys(), 'testLabel': f'test_{test_ratio}', 'testRatio': test_ratio})
-
+        return Response({'data': data_reformat, 'filename': filename, 'keepRatioColumns': keep_ratio_columns, 'ratios': ratios.keys(), 'testLabel': f'test:{test_ratio}', 'testRatio': test_ratio})
 
 
 @parser_classes([JSONParser])
@@ -247,43 +299,81 @@ class Classification(APIView):
     
     def post(self, request, subsample_id):
         
+        ###### OUTSOURCE
+        random_states = [101]
         subsample_obj = models.Subsampling.objects.get(subsample_id=subsample_id)
-        target_column = subsample_obj.target_column
+        target_column = request.data.get('targetColumn')
+        target_value = request.data.get('targetValue')
+        filename = subsample_obj.file.filename
+        session = subsample_obj.session.session_id
         
         for _ in range(ATTEMPTS):
-            classification_id = generate_id(10)
-            if not len(models.Classification.objects.filter(classification_id=classification_id)):
+            classification_task_id = generate_id(10)
+            if not len(models.ClassificationTask.objects.filter(classification_task_id=classification_task_id)):
                 break
-        classification = models.Classification.objects.create(classification_id=classification_id, subsample=subsample_obj)
         
         test_folder = get_session_subsample_test_folder(
-            subsample_obj.session.session_id,
-            subsample_obj.file.filename,
+            session,
+            filename,
             subsample_id)
         
         train_folder = get_session_subsample_train_folder(
-            subsample_obj.session.session_id,
-            subsample_obj.file.filename,
+            session,
+            filename,
             subsample_id)
         
-        df_test = read_file(os.path.join(test_folder, os.listdir(test_folder))[0])
-        y_test = df_test[target_column]
+        df_test = read_file(os.path.join(test_folder, os.listdir(test_folder)[0]))
+        y_test = (df_test[target_column].str.lower() == target_value).map(int)
         X_test = df_test.drop([target_column], axis=1)
         
-        for file in os.listdir(train_folder):
-            file_path = os.path.join(train_folder, file)
+        evaluation_list = []
+        model_paths = [] # used for futher evaluation
+        # every data file is different ratio or random seed
+        for data_file in os.listdir(train_folder):
+            file_path = os.path.join(train_folder, data_file)
             df_train = read_file(file_path)
             
-            y_train = df_train[target_column]
+            y_train = (df_train[target_column].str.lower() == target_value).map(int)
             X_train = df_train.drop([target_column], axis=1)
-            
             classifier = dazer.Classifier(X_train, y_train, X_test, y_test)
+            model_folder_path = get_model_folder(session, filename, subsample_id)
             
+            ratio = get_param_from_filename('ratio', data_file)
+            random_state_data = get_param_from_filename('random_state', data_file)
+            
+            for random_state in random_states:
+                model_path = os.path.join(model_folder_path, f'ratio={ratio};random_state={random_state};random_state_data={random_state_data}.joblib')
+                _, evaluation = classifier.train_test_random_forest(random_state=random_state, model_path=model_path, scoring='f1', cv=2)
+                evaluation.update({'random_state': random_state, 'random_state_data': random_state_data, 'ratio': ratio})
+                evaluation_list.append(evaluation)
+                model_paths.append(model_path)
+        
+        feature_importances = dazer.random_forest_utils.random_forests_feature_importances_from_files(model_paths)
+        
+        classification = models.ClassificationTask.objects.create(
+            classification_task_id=classification_task_id,
+            subsample=subsample_obj,
+            evaluation=json.dumps(evaluation_list),
+            feature_importances=json.dumps(feature_importances),
+            feature_columns=json.dumps(list(X_test.columns)),
+            target_column=target_column,
+            target_value=target_value)
              
-            
-        
-        return Response({})
-        
-
-
-
+        # DONE
+        return Response({'classification_task_id': classification_task_id})
+    
+    
+class ClassificationResult(APIView):    
+    
+    def get(self, request, classification_task_id):
+        classification_task = models.ClassificationTask.objects.get(classification_task_id=classification_task_id)
+        evaluation_list = json.loads(classification_task.evaluation)
+        feature_importances = json.loads(classification_task.feature_importances)
+        return Response({
+            'data': evaluation_list,
+            'feature_importances': feature_importances,
+            'filename': classification_task.subsample.file.filename,
+            'target_column': classification_task.target_column,
+            'target_value': classification_task.target_value,
+            'features': json.loads(classification_task.feature_columns),
+            })

@@ -162,3 +162,5 @@ cython_debug/
 _sessions
 
 .DS_store
+
+**/migrations
