@@ -21,6 +21,11 @@ class Subsampling(models.Model):
     session = models.ForeignKey('Session', on_delete=models.CASCADE, related_name='subsamples')
     file = models.ForeignKey('File', on_delete=models.CASCADE, related_name='subsamples')
     keep_ratio_columns = models.TextField()
+    test_ratio = models.FloatField()
+    allowed_deviation = models.FloatField()
+    ratios = models.TextField()
+    iteration_random_states = models.TextField()
+    result_formatted = models.TextField()
     
     class Meta:
         unique_together = ('session', 'file', 'subsample_id')
@@ -35,3 +40,5 @@ class ClassificationTask(models.Model):
     feature_columns = models.TextField()
     target_column = models.CharField(max_length=100)
     target_value = models.CharField(max_length=100)
+    cv = models.IntegerField()
+    random_states = models.CharField(max_length=100)
