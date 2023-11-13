@@ -11,6 +11,8 @@ class File(models.Model):
     rows_removed = models.IntegerField(default=0) # some rows are dropped when containing NaN. 0 if no row removed
     columns = models.TextField()
     categorical_columns_values = models.TextField()
+    created = models.DateTimeField(auto_now_add=True)
+    
     
     class Meta:
         unique_together = ('session', 'filename')
@@ -26,6 +28,8 @@ class Subsampling(models.Model):
     ratios = models.TextField()
     iteration_random_states = models.TextField()
     result_formatted = models.TextField()
+    created = models.DateTimeField(auto_now_add=True)
+
     
     class Meta:
         unique_together = ('session', 'file', 'subsample_id')
@@ -42,3 +46,23 @@ class ClassificationTask(models.Model):
     target_value = models.CharField(max_length=100)
     cv = models.IntegerField()
     random_states = models.CharField(max_length=100)
+    created = models.DateTimeField(auto_now_add=True)
+
+
+class Task(models.Model):
+    token = models.CharField(max_length=21, unique=True, primary_key=True)
+    created = models.DateTimeField(auto_now_add=True)
+    objective = models.CharField(
+        max_length=32, choices=[("subsample", "Subsample"), ("classification", "Classification")]
+    )
+
+    parameters = models.TextField()
+
+    progress = models.FloatField(default=0.0)  # Progress as fraction (0.0 - 1.0)
+    started = models.DateTimeField(null=True)
+    finished = models.DateTimeField(null=True)
+    worker_id = models.CharField(max_length=128, null=True) # not yet used
+    job_id = models.CharField(max_length=128, null=True) # not yet used
+    done = models.BooleanField(default=False)
+    failed = models.BooleanField(default=False)
+    status = models.CharField(max_length=255, null=True)

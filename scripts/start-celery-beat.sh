@@ -1,0 +1,1 @@
+celery -A drugstone beat -l INFO
