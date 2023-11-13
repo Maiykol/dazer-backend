@@ -3,25 +3,25 @@ version: '3.8'
 services:
   frontend:
     container_name: dazer_frontend
-    image: ghcr.io/Maiykol/dazer-frontend:development
+    image: ghcr.io/maiykol/dazer-frontend:development
     restart: always
     ports:
-      - 8121:80
+      - 8171:80
     networks:
       - dazer
     labels:
       - "com.centurylinklabs.watchtower.enable=true"
 
   backend:
-    image: ghcr.io/Maiykol/dazer-backend:development
+    image: ghcr.io/maiykol/dazer-backend:development
     container_name: dazer_backend
     command: 
       - "sh"
       - "scripts/docker-entrypoint.sh"
     volumes:
-      - sessions_data:/usr/src/app/_sessions
+      - dazer_dev_session_data:/usr/src/app/_sessions
     ports:
-      - 8000:8000
+      - 8172:8000
     env_file:
       - './.env'
     depends_on:
@@ -40,10 +40,10 @@ services:
   celery:
     restart: always
     container_name: dazer_celery
-    build: ./
+    image: ghcr.io/maiykol/dazer-backend:development
     command: celery -A dazer_backend worker -l info
     volumes:
-      - sessions_data:/usr/src/app/_sessions
+      - dazer_dev_session_data:/usr/src/app/_sessions
     env_file:
       - './.env'
     depends_on:
@@ -52,11 +52,11 @@ services:
       - dazer
 
   celery-beat:
-    build: ./
+    image: ghcr.io/maiykol/dazer-backend:development
     container_name: dazer_celery_beat
     command: celery -A dazer_backend beat -l info
     volumes:
-      - sessions_data:/usr/src/app/_sessions
+      - dazer_dev_session_data:/usr/src/app/_sessions
     env_file:
       - './.env'
     depends_on:
@@ -68,7 +68,7 @@ services:
     image: postgres:12.0
     container_name: dazer_db
     volumes:
-      - postgres_data:/var/lib/postgresql/data/
+      - dazer_dev_postgres_data:/var/lib/postgresql/data/
     ports:
       - 5432:5432
     environment:
@@ -82,7 +82,7 @@ networks:
   dazer:
 
 volumes:
-  postgres_data:
+  dazer_dev_postgres_data:
     external: true
-  sessions_data:
+  dazer_dev_session_data:
     external: true
