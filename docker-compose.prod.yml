@@ -1,0 +1,88 @@
+version: '3.8'
+
+services:
+  frontend:
+    container_name: dazer_frontend
+    image: ghcr.io/Maiykol/dazer-frontend:development
+    restart: always
+    ports:
+      - 8121:80
+    networks:
+      - dazer
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
+
+  backend:
+    image: ghcr.io/Maiykol/dazer-backend:development
+    container_name: dazer_backend
+    command: 
+      - "sh"
+      - "scripts/docker-entrypoint.sh"
+    volumes:
+      - sessions_data:/usr/src/app/_sessions
+    ports:
+      - 8000:8000
+    env_file:
+      - './.env'
+    depends_on:
+      - redis
+    networks:
+      - dazer
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
+      
+  redis:
+    image: redis
+    container_name: dazer_redis
+    networks:
+      - dazer
+
+  celery:
+    restart: always
+    container_name: dazer_celery
+    build: ./
+    command: celery -A dazer_backend worker -l info
+    volumes:
+      - sessions_data:/usr/src/app/_sessions
+    env_file:
+      - './.env'
+    depends_on:
+      - redis
+    networks:
+      - dazer
+
+  celery-beat:
+    build: ./
+    container_name: dazer_celery_beat
+    command: celery -A dazer_backend beat -l info
+    volumes:
+      - sessions_data:/usr/src/app/_sessions
+    env_file:
+      - './.env'
+    depends_on:
+      - redis
+    networks:
+      - dazer
+
+  db:
+    image: postgres:12.0
+    container_name: dazer_db
+    volumes:
+      - postgres_data:/var/lib/postgresql/data/
+    ports:
+      - 5432:5432
+    environment:
+      - POSTGRES_DB=${SQL_DATABASE}
+      - POSTGRES_USER=${SQL_USER}
+      - POSTGRES_PASSWORD=${SQL_PASSWORD}
+    networks:
+      - dazer
+
+networks:
+  dazer:
+
+volumes:
+  postgres_data:
+    external: true
+  sessions_data:
+    external: true
