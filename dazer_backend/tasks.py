@@ -37,23 +37,28 @@ def classification_task(task_id):
             filename,
             subsample_id)
         
-        df_test = read_file(os.path.join(test_folder, os.listdir(test_folder)[0]))
-        y_test = (df_test[target_column].str.lower() == target_value).map(int)
-        X_test = df_test.drop([target_column], axis=1)
-        
         evaluation_list = []
         model_list = [] # used for futher evaluation
         model_keys = [] # used for futher evaluation
         ratios = json.loads(subsample_obj.ratios)
         # every data file is different ratio or random seed
         train_files = os.listdir(train_folder)
+        test_files = os.listdir(test_folder)
         subsample_iteration_random_states = json.loads(subsample_obj.iteration_random_states)
         
         progress_max = len(ratios) * len(random_states) * len(subsample_iteration_random_states)
         progress = 0
         
-        for ratio in ratios:
-            for subsample_iteration_random_state in subsample_iteration_random_states:
+        for subsample_iteration_random_state in subsample_iteration_random_states:
+            test_file = [x for x in test_files if f'ratio={str(ratio)}' in x and f'iteration_random_state={subsample_iteration_random_state}' in x]
+            assert len(test_file) == 1
+            test_file = test_file[0]
+            
+            df_test = read_file(os.path.join(test_folder, test_file))
+            y_test = (df_test[target_column].str.lower() == target_value).map(int)
+            X_test = df_test.drop([target_column], axis=1)
+        
+            for ratio in ratios:
                 data_file = [x for x in train_files if f'ratio={str(ratio)}' in x and f'iteration_random_state={subsample_iteration_random_state}' in x]
                 assert len(data_file) == 1
                 data_file = data_file[0]

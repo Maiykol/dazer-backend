@@ -186,6 +186,7 @@ class Subsample(APIView):
         ratios = request.data.get('ratios', [.5, 1])
         n_random_states = int(request.data.get('nRandomStates', 1))
         allowed_deviation = float(request.data.get('allowedDeviation', 0.2))
+        deviations = {'test': {}, 'train': {}}
 
         iteration_random_states = random_states[:n_random_states]
         
@@ -200,11 +201,18 @@ class Subsample(APIView):
         
         df = utils.read_file(os.path.join(utils.get_session_files_folder(session), filename))
         subsampler = dazer.Subsampler(df, keep_ratio_columns, allowed_deviation=allowed_deviation)
-        for random_state in range(1, utils.ATTEMPTS+1):
-            df_test = subsampler.extract_test(test_size=0.2, random_state=random_state)
-            if df_test is not None:
-                break
-        df_test.to_csv(os.path.join(folder_test, f'type=test;ratio={str(test_ratio)};random_state={random_state}.tsv'), sep='\t')
+        for seed in iteration_random_states:
+            npr.seed(seed)
+            for attempt in range(1, utils.ATTEMPTS+1):
+                random_state = npr.randint(1, 999999999)
+                df_test = subsampler.extract_test(test_size=0.2, random_state=random_state)
+                if df_test is None:
+                    continue # next attempt
+                df_test.to_csv(os.path.join(folder_test, f'type=test;ratio={str(test_ratio)};iteration_random_state={seed};random_state={random_state}.tsv'), sep='\t')
+                deviations['test'][seed] = subsampler.get_deviation_list()
+            
+            assert attempt < utils.ATTEMPTS
+            # TODO proper error
         
         folder_train = utils.get_session_subsample_train_folder(session, filename, subsample_id)
         Path(folder_train).mkdir(parents=True, exist_ok=True)
@@ -219,9 +227,13 @@ class Subsample(APIView):
                         # jump to next random state
                         break
                     df_train.to_csv(os.path.join(folder_train, f'type=train;ratio={str(ratio)};iteration_random_state={seed};random_state={random_state}.tsv'), sep='\t')
+                    deviations['test'][seed] = subsampler.get_deviation_list()
+
                 if ratio == 1:
                     break
-                
+            assert attempt < utils.ATTEMPTS
+            # TODO proper error
+            
         ### SUBSAMPLING DONE ABOVE, FORMAT OUTPUT BELOW
         
         # train data
@@ -294,7 +306,7 @@ class Subsample(APIView):
             iteration_random_states=json.dumps(iteration_random_states),
             test_ratio=test_ratio,
             allowed_deviation=allowed_deviation,
-            result_formatted =json.dumps({'data': dict(mean_dict), 'filename': filename, 'keepRatioColumns': keep_ratio_columns, 'ratios': ratios, 'testLabel': f'test:{test_ratio}'})
+            result_formatted =json.dumps({'data': dict(mean_dict), 'filename': filename, 'ratios': ratios, 'testLabel': f'test:{test_ratio}', 'deviations': deviations})
             )
             
         return Response()
@@ -304,7 +316,7 @@ class SubsampleResult(APIView):
     
     def get(self, request, subsample_id):
         subsample_obj = models.Subsampling.objects.get(subsample_id=subsample_id)
-        return Response({**json.loads(subsample_obj.result_formatted), 'allowedDeviation': subsample_obj.allowed_deviation, 'iterationRandomStates': json.loads(subsample_obj.iteration_random_states), 'testRatio': subsample_obj.test_ratio})
+        return Response({**json.loads(subsample_obj.result_formatted), 'keepRatioColumns': json.loads(subsample_obj.keep_ratio_columns), 'allowedDeviation': subsample_obj.allowed_deviation, 'iterationRandomStates': json.loads(subsample_obj.iteration_random_states), 'testRatio': subsample_obj.test_ratio})
     
         
 @parser_classes([JSONParser])
