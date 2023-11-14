@@ -6,7 +6,7 @@ click==8.1.7
 click-didyoumean==0.3.0
 click-plugins==1.1.1
 click-repl==0.3.0
-dazer==0.1.13
+dazer==0.1.14
 Django==4.2.6
 django-cors-headers==4.3.0
 django-filter==23.3

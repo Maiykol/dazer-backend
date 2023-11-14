@@ -29,7 +29,9 @@ services:
     restart: always
     container_name: dazer_celery
     build: ./
-    command: celery -A dazer_backend worker -l info
+    command:
+      - "sh"
+      - "scripts/start-celery-worker.sh"
     volumes:
       - sessions_data:/usr/src/app/_sessions
     env_file:
@@ -42,7 +44,9 @@ services:
   celery-beat:
     build: ./
     container_name: dazer_celery_beat
-    command: celery -A dazer_backend beat -l info
+    command:
+      - "sh"
+      - "scripts/start-celery-beat.sh"
     volumes:
       - sessions_data:/usr/src/app/_sessions
     env_file:

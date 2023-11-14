@@ -2,6 +2,7 @@ import os
 import pandas as pd
 import random
 import string
+import numpy as np
 
 
 ATTEMPTS = 300
@@ -60,7 +61,7 @@ def get_param_from_filename(target, filename, sep=';'):
 
 def get_df_column_information(df):
     columns = list(df.columns)
-    categorical_columns = df.columns[~df.columns.isin(df._get_numeric_data().columns)]
+    categorical_columns = df.columns[~df.columns.isin(list(df.select_dtypes(include=[np.number]).columns.values))]
     categorical_columns_values = {}
     for col in categorical_columns:
         categorical_columns_values[col] = df[col].dropna().unique().tolist()

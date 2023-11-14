@@ -1,2 +1,2 @@
 sleep 10
-celery -A drugstone worker -l INFO
+celery -A dazer_backend worker -l info -c 4

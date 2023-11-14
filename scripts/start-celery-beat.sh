@@ -1,1 +1,1 @@
-celery -A drugstone beat -l INFO
+celery -A dazer_backend beat -l info

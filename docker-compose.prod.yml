@@ -6,7 +6,7 @@ services:
     image: ghcr.io/maiykol/dazer-frontend:development
     restart: always
     ports:
-      - 8171:80
+      - 8181:80
     networks:
       - dazer
     labels:
@@ -21,7 +21,7 @@ services:
     volumes:
       - dazer_dev_session_data:/usr/src/app/_sessions
     ports:
-      - 8172:8000
+      - 8182:8000
     env_file:
       - './.env'
     depends_on:
@@ -41,7 +41,9 @@ services:
     restart: always
     container_name: dazer_celery
     image: ghcr.io/maiykol/dazer-backend:development
-    command: celery -A dazer_backend worker -l info
+    command:
+      - "sh"
+      - "scripts/start-celery-worker.sh"
     volumes:
       - dazer_dev_session_data:/usr/src/app/_sessions
     env_file:
@@ -54,7 +56,9 @@ services:
   celery-beat:
     image: ghcr.io/maiykol/dazer-backend:development
     container_name: dazer_celery_beat
-    command: celery -A dazer_backend beat -l info
+    command:
+      - "sh"
+      - "scripts/start-celery-beat.sh"
     volumes:
       - dazer_dev_session_data:/usr/src/app/_sessions
     env_file:

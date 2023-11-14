@@ -68,7 +68,7 @@ def classification_task(task_id):
                 
                 for random_state in random_states:
                     model_path = os.path.join(model_folder_path, f'ratio={ratio};random_state={random_state};random_state_subsample_iteration={subsample_iteration_random_state}.joblib')
-                    model, evaluation = classifier.train_test_random_forest(random_state=random_state, model_path=model_path, scoring='f1', cv=cv, n_jobs=1)
+                    model, evaluation = classifier.train_test_random_forest(random_state=random_state, model_path=model_path, scoring='f1', cv=cv, n_jobs=4)
                     evaluation.update(classifier.classifier_prediction_evaluation(models=[model])[0])
                     evaluation.update({'random_state': random_state, 'random_state_subsample_iteration': int(subsample_iteration_random_state), 'ratio': float(ratio)})
                     evaluation_list.append(evaluation)
