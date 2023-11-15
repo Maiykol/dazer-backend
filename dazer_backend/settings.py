@@ -30,8 +30,8 @@ DEBUG = os.environ.get("DEBUG", False)
 ALLOWED_HOSTS = [
     'localhost',
     '127.0.0.1',
-    'prototypes.cosy.bio'
-    'apps.cosy.bio'
+    'prototypes.cosy.bio',
+    'apps.cosy.bio',
 ]
 
 
@@ -46,7 +46,7 @@ INSTALLED_APPS = [
     "django.contrib.staticfiles",
     "corsheaders",
     "rest_framework",
-    "api"
+    "api",
 ]
 
 MIDDLEWARE = [
