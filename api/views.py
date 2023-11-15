@@ -134,13 +134,13 @@ class SessionFiles(APIView):
                 classification_task_information = []
                 for classification_task_obj in classification_obj_list:
                     classification_task_information.append({
-                        'classificationId': classification_task_obj.classification_task_id, 'timestamp': classification_task_obj.created.timestamp(), 'progress': 1, 'error': False
+                        'classificationId': classification_task_obj.classification_task_id, 'timestamp': classification_task_obj.created.timestamp(), 'progress': 1, 'error': False, 'done': True,  'status': 'done'
                     })
                 # add unfinished tasks
                 classification_task_obj_list = models.Task.objects.filter(token__startswith=subsample_task_obj.subsample_id).filter(done=False).order_by('-created')
                 for classification_task_obj in classification_task_obj_list:
                     classification_task_information.append({
-                        'classificationId': classification_task_obj.token.split('_')[1], 'timestamp': classification_task_obj.created.timestamp(), 'progress': classification_task_obj.progress, 'error': classification_task_obj.failed
+                        'classificationId': classification_task_obj.token.split('_')[1], 'timestamp': classification_task_obj.created.timestamp(), 'progress': classification_task_obj.progress, 'error': classification_task_obj.failed, 'done': classification_task_obj.done,  'status': json.loads(classification_task_obj.status) if classification_task_obj.status is not None else ''
                     })
                  
                 subsample_task_information.append({
@@ -182,7 +182,7 @@ class Subsample(APIView):
         file_obj = models.File.objects.get(session=session_obj, filename=filename)
         
         keep_ratio_columns = request.data.get('keepRatioColumns')
-        test_ratio = request.data.get('testRatio')
+        test_ratio = request.data.get('testRatio', 0.2)
         ratios = request.data.get('ratios', [.5, 1])
         n_random_states = int(request.data.get('nRandomStates', 1))
         allowed_deviation = float(request.data.get('allowedDeviation', 0.2))
@@ -198,22 +198,22 @@ class Subsample(APIView):
             
         folder_test = utils.get_session_subsample_test_folder(session, filename, subsample_id)
         Path(folder_test).mkdir(parents=True, exist_ok=True)
-        
         df = utils.read_file(os.path.join(utils.get_session_files_folder(session), filename))
-        subsampler = dazer.Subsampler(df, keep_ratio_columns, allowed_deviation=allowed_deviation)
         for seed in iteration_random_states:
             npr.seed(seed)
             for attempt in range(1, utils.ATTEMPTS+1):
                 random_state = npr.randint(1, 999999999)
-                df_test = subsampler.extract_test(test_size=0.2, random_state=random_state)
+                subsampler = dazer.Subsampler(df, keep_ratio_columns, allowed_deviation=allowed_deviation)
+                df_test = subsampler.extract_test(test_size=test_ratio, random_state=random_state)
                 if df_test is None:
                     continue # next attempt
                 df_test.to_csv(os.path.join(folder_test, f'type=test;ratio={str(test_ratio)};iteration_random_state={seed};random_state={random_state}.tsv'), sep='\t')
                 deviations['test'][seed] = subsampler.get_deviation_list()
-            
+                break # attempt successfull
+
             assert attempt < utils.ATTEMPTS
             # TODO proper error
-        
+
         folder_train = utils.get_session_subsample_train_folder(session, filename, subsample_id)
         Path(folder_train).mkdir(parents=True, exist_ok=True)
         
@@ -224,7 +224,7 @@ class Subsample(APIView):
                 for ratio in ratios:
                     df_train = subsampler.subsample(ratio, random_state)
                     if df_train is None:
-                        # jump to next random state
+                        # jump to next attempt (random state)
                         break
                     df_train.to_csv(os.path.join(folder_train, f'type=train;ratio={str(ratio)};iteration_random_state={seed};random_state={random_state}.tsv'), sep='\t')
                     deviations['test'][seed] = subsampler.get_deviation_list()
@@ -345,6 +345,11 @@ class Classification(APIView):
         if not (1 <= cv <= 10):
             return HttpResponseBadRequest('crossValidationK must be a value between 1 and 10')
         
+        # if target_value == 'true':
+        #     target_value = True
+        # elif target_value == 'false':
+        #     target_value = False
+        
         task_token = f'{subsample_id}_{classification_task_id}'
         task = models.Task.objects.create(
             token=f'{subsample_id}_{classification_task_id}',
@@ -374,18 +379,13 @@ class ClassificationResult(APIView):
     def get(self, request, classification_task_id):
         
         task_obj = models.Task.objects.get(token__endswith=classification_task_id)
-        print('task_obj', task_obj)
-        print(task_obj.done)
-        print(task_obj.failed)
         if not (task_obj.done or task_obj.failed):
             return Response({
                 'status': json.loads(task_obj.status) if task_obj.status is not None else '',
                 'progress': task_obj.progress
             })
         
-        print('here')
         classification_task = models.ClassificationTask.objects.get(classification_task_id=classification_task_id)
-        print('classification_task', classification_task)
         evaluation_list = _merge_classification_results(classification_task.evaluation)
         feature_importances = json.loads(classification_task.feature_importances)
         feature_importances_features = json.loads(classification_task.feature_columns)

@@ -6,6 +6,8 @@ import dazer
 import pandas as pd
 from celery import shared_task
 from datetime import datetime
+import traceback
+import sys
 
 
 @shared_task()
@@ -21,7 +23,7 @@ def classification_task(task_id):
         subsample_id, classification_task_id = task_id.split('_')
         subsample_obj = models.Subsampling.objects.get(subsample_id=subsample_id)
         target_column = parameters['target_column']
-        target_value = parameters['target_value']
+        target_value = str(parameters['target_value']).lower()
         cv = parameters['cv']
         random_states = parameters['random_states']
         filename = subsample_obj.file.filename
@@ -50,12 +52,13 @@ def classification_task(task_id):
         progress = 0
         
         for subsample_iteration_random_state in subsample_iteration_random_states:
-            test_file = [x for x in test_files if f'ratio={str(ratio)}' in x and f'iteration_random_state={subsample_iteration_random_state}' in x]
+            test_file = [x for x in test_files if f'iteration_random_state={subsample_iteration_random_state}' in x]
             assert len(test_file) == 1
             test_file = test_file[0]
             
             df_test = read_file(os.path.join(test_folder, test_file))
-            y_test = (df_test[target_column].str.lower() == target_value).map(int)
+            y_test = (df_test[target_column].map(str).str.lower() == target_value).map(int)
+            
             X_test = df_test.drop([target_column], axis=1)
         
             for ratio in ratios:
@@ -65,8 +68,8 @@ def classification_task(task_id):
                 
                 file_path = os.path.join(train_folder, data_file)
                 df_train = read_file(file_path)
-                
-                y_train = (df_train[target_column].str.lower() == target_value).map(int)
+                y_train = (df_train[target_column].map(str).str.lower() == target_value).map(int)
+
                 X_train = df_train.drop([target_column], axis=1)
                 classifier = dazer.Classifier(X_train, y_train, X_test, y_test)
                 model_folder_path = get_model_folder(session, filename, classification_task_id)
@@ -107,7 +110,8 @@ def classification_task(task_id):
         print(e)
         # something in task failed
         task_obj.failed = True
-        task_obj.status = json.dumps(e)
+        exc_info = sys.exc_info()
+        task_obj.status = json.dumps(''.join(traceback.format_exception(*exc_info)))
         
     task_obj.finished = datetime.now()
     task_obj.save()

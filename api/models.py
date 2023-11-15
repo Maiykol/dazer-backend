@@ -65,4 +65,4 @@ class Task(models.Model):
     job_id = models.CharField(max_length=128, null=True) # not yet used
     done = models.BooleanField(default=False)
     failed = models.BooleanField(default=False)
-    status = models.CharField(max_length=255, null=True)
+    status = models.TextField(null=True, default=None)
