@@ -56,7 +56,7 @@ class Task(models.Model):
         max_length=32, choices=[("subsample", "Subsample"), ("classification", "Classification")]
     )
 
-    parameters = models.TextField()
+    parameters = models.TextField(default=None)
 
     progress = models.FloatField(default=0.0)  # Progress as fraction (0.0 - 1.0)
     started = models.DateTimeField(null=True)

@@ -87,6 +87,10 @@ networks:
 
 volumes:
   dazer_dev_postgres_data:
-    external: true
+  # mount sessions folder to local folder for easier debugging
   dazer_dev_session_data:
-    external: true
+    driver: local
+    driver_opts:
+      o: bind
+      type: none
+      device: /srv/projects/dazer_dev/_sessions
