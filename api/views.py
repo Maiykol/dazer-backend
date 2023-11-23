@@ -22,59 +22,61 @@ from dazer_backend import tasks
 class FileUpload(APIView):
 
     def put(self, request, session, filename):
-        print('file upload')
-        print(filename)
-        content = request.body
-        if content is None:
-            return Response({})
-        
-        session_obj, _ = models.Session.objects.get_or_create(session_id=session)
-        
-        if len(models.File.objects.filter(session=session_obj, filename=filename)):
-            # file already exists, increment filename
-            for i in range(1, utils.ATTEMPTS+1):
-                filename_incremented = f'{filename[:-4]}{i}.tsv'
-                if not len(models.File.objects.filter(session=session_obj, filename=filename_incremented)):
-                    break
-            if i == utils.ATTEMPTS:
-                return HttpResponseBadRequest('Filename already taken.')
-            filename = filename_incremented
-        
-        Path(utils.get_session_files_folder(session)).mkdir(parents=True, exist_ok=True)
-        file_path = os.path.join(utils.get_session_files_folder(session), filename)
-        
-        print(file_path)
-        
-        with open(file_path, "wb+") as destination:
-            destination.write(content)
+        try:
+            print('file upload')
+            print(filename)
+            content = request.body
+            if content is None:
+                return Response({})
             
-        try:
-            df = utils.read_file(file_path)
-            df, rows_removed = utils.clean_input_dataframe(df)
-            columns, categorical_columns_values = utils.get_df_column_information(df)
-        except:
-            print('Could not read file')
-            return HttpResponseBadRequest('Could not read file.')
-        print(file_path)
-        
-        try:
-            utils.write_file(df, file_path)
-        except:
-            print('Could not write file')
-            return HttpResponseBadRequest('Could not write file.')
-        
-        print(file_path)
-        
-        # create session instance on file upload
-        try:
-            models.File.objects.create(session=session_obj, filename=filename, rows_removed=rows_removed, columns=json.dumps(columns), categorical_columns_values=json.dumps(categorical_columns_values))
+            session_obj, _ = models.Session.objects.get_or_create(session_id=session)
+            
+            if len(models.File.objects.filter(session=session_obj, filename=filename)):
+                # file already exists, increment filename
+                for i in range(1, utils.ATTEMPTS+1):
+                    filename_incremented = f'{filename[:-4]}{i}.tsv'
+                    if not len(models.File.objects.filter(session=session_obj, filename=filename_incremented)):
+                        break
+                if i == utils.ATTEMPTS:
+                    return HttpResponseBadRequest('Filename already taken.')
+                filename = filename_incremented
+            
+            Path(utils.get_session_files_folder(session)).mkdir(parents=True, exist_ok=True)
+            file_path = os.path.join(utils.get_session_files_folder(session), filename)
+            
+            print(file_path)
+            
+            with open(file_path, "wb+") as destination:
+                destination.write(content)
+                
+            try:
+                df = utils.read_file(file_path)
+                df, rows_removed = utils.clean_input_dataframe(df)
+                columns, categorical_columns_values = utils.get_df_column_information(df)
+            except:
+                print('Could not read file')
+                return HttpResponseBadRequest('Could not read file.')
+            print(file_path)
+            
+            try:
+                utils.write_file(df, file_path)
+            except:
+                print('Could not write file')
+                return HttpResponseBadRequest('Could not write file.')
+            
+            print(file_path)
+            
+            # create session instance on file upload
+            try:
+                models.File.objects.create(session=session_obj, filename=filename, rows_removed=rows_removed, columns=json.dumps(columns), categorical_columns_values=json.dumps(categorical_columns_values))
+            except Exception as e:
+                print(e)
+                print('Could not create file object')
+                # file already exists for this session
+                return HttpResponseBadRequest('File already exists.')
         except Exception as e:
             print(e)
-            print('Could not create file object')
-            # file already exists for this session
-            return HttpResponseBadRequest('File already exists.')
         
-        print(file_path)
         return Response({})
     
 
