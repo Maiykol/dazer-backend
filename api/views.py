@@ -22,6 +22,7 @@ from dazer_backend import tasks
 class FileUpload(APIView):
 
     def put(self, request, session, filename):
+        print('file upload')
         print(filename)
         content = request.body
         if content is None:
@@ -74,8 +75,6 @@ class FileUpload(APIView):
             return HttpResponseBadRequest('File already exists.')
         
         print(file_path)
-        
-        
         return Response({})
     
 
@@ -111,6 +110,8 @@ class SessionId(APIView):
 
         if session is None:
             return Response({'session': ''})
+        
+        print('generated session id', session)
 
         return Response({'session': session})
     
