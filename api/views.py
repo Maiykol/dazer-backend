@@ -23,8 +23,6 @@ class FileUpload(APIView):
 
     def put(self, request, session, filename):
         try:
-            print('file upload')
-            print(filename)
             content = request.body
             if content is None:
                 return Response({})
@@ -44,8 +42,6 @@ class FileUpload(APIView):
             Path(utils.get_session_files_folder(session)).mkdir(parents=True, exist_ok=True)
             file_path = os.path.join(utils.get_session_files_folder(session), filename)
             
-            print(file_path)
-            
             with open(file_path, "wb+") as destination:
                 destination.write(content)
                 
@@ -56,15 +52,12 @@ class FileUpload(APIView):
             except:
                 print('Could not read file')
                 return HttpResponseBadRequest('Could not read file.')
-            print(file_path)
             
             try:
                 utils.write_file(df, file_path)
             except:
                 print('Could not write file')
                 return HttpResponseBadRequest('Could not write file.')
-            
-            print(file_path)
             
             # create session instance on file upload
             try:
@@ -172,145 +165,152 @@ def flatten_dict(dictionary, parent_key='', separator='_'):
         
 def merge_flat_dicts(array_of_dicts):
     keys = array_of_dicts[0].keys()
-    return {key: sum([e[key] for e in array_of_dicts])/len(array_of_dicts) for key in keys}
+    return {key: sum([e[key] if key in e else 0 for e in array_of_dicts])/len(array_of_dicts) for key in keys}
 
 
 @parser_classes([JSONParser])
 class Subsample(APIView):
     
     def post(self, request, session, filename):
-        random_states = [101, 102, 103, 104, 105]
-        
-        session_obj = models.Session.objects.get(session_id=session)
-        file_obj = models.File.objects.get(session=session_obj, filename=filename)
-        
-        keep_ratio_columns = request.data.get('keepRatioColumns')
-        test_ratio = request.data.get('testRatio', 0.2)
-        ratios = request.data.get('ratios', [.5, 1])
-        n_random_states = int(request.data.get('nRandomStates', 1))
-        allowed_deviation = float(request.data.get('allowedDeviation', 0.2))
-        deviations = {'test': {}, 'train': {}}
-
-        iteration_random_states = random_states[:n_random_states]
-        
-        #### move this to standalone task
-        for _ in range(utils.ATTEMPTS):
-            subsample_id = utils.generate_id(10)
-            if not len(models.Subsampling.objects.filter(subsample_id=subsample_id)):
-                break
+        try:
+            random_states = [101, 102, 103, 104, 105]
             
-        folder_test = utils.get_session_subsample_test_folder(session, filename, subsample_id)
-        Path(folder_test).mkdir(parents=True, exist_ok=True)
-        df = utils.read_file(os.path.join(utils.get_session_files_folder(session), filename))
-        for seed in iteration_random_states:
-            npr.seed(seed)
-            for attempt in range(1, utils.ATTEMPTS+1):
-                random_state = npr.randint(1, 999999999)
-                subsampler = dazer.Subsampler(df, keep_ratio_columns, allowed_deviation=allowed_deviation)
-                df_test = subsampler.extract_test(test_size=test_ratio, random_state=random_state)
-                if df_test is None:
-                    continue # next attempt
-                df_test.to_csv(os.path.join(folder_test, f'type=test;ratio={str(test_ratio)};iteration_random_state={seed};random_state={random_state}.tsv'), sep='\t')
-                deviations['test'][seed] = subsampler.get_deviation_list()
-                break # attempt successfull
+            session_obj = models.Session.objects.get(session_id=session)
+            file_obj = models.File.objects.get(session=session_obj, filename=filename)
+            
+            keep_ratio_columns = request.data.get('keepRatioColumns')
+            test_ratio = request.data.get('testRatio', 0.2)
+            ratios = request.data.get('ratios', [.5, 1])
+            n_random_states = int(request.data.get('nRandomStates', 1))
+            allowed_deviation = float(request.data.get('allowedDeviation', 0.2))
+            deviations = {'test': {}, 'train': {}}
 
-            assert attempt < utils.ATTEMPTS
-            # TODO proper error
-
-        folder_train = utils.get_session_subsample_train_folder(session, filename, subsample_id)
-        Path(folder_train).mkdir(parents=True, exist_ok=True)
-        
-        for seed in iteration_random_states:
-            npr.seed(seed)
-            for attempt in range(1, utils.ATTEMPTS+1):
-                random_state = npr.randint(1, 999999999)
-                for ratio in ratios:
-                    df_train = subsampler.subsample(ratio, random_state)
-                    if df_train is None:
-                        # jump to next attempt (random state)
-                        break
-                    df_train.to_csv(os.path.join(folder_train, f'type=train;ratio={str(ratio)};iteration_random_state={seed};random_state={random_state}.tsv'), sep='\t')
-                    deviations['test'][seed] = subsampler.get_deviation_list()
-
-                if ratio == 1:
+            iteration_random_states = random_states[:n_random_states]
+            
+            #### move this to standalone task
+            for _ in range(utils.ATTEMPTS):
+                subsample_id = utils.generate_id(10)
+                if not len(models.Subsampling.objects.filter(subsample_id=subsample_id)):
                     break
-            assert attempt < utils.ATTEMPTS
-            # TODO proper error
+                
+            folder_test = utils.get_session_subsample_test_folder(session, filename, subsample_id)
+            Path(folder_test).mkdir(parents=True, exist_ok=True)
+            df = utils.read_file(os.path.join(utils.get_session_files_folder(session), filename))
+            for seed in iteration_random_states:
+                npr.seed(seed)
+                for attempt in range(1, utils.ATTEMPTS+1):
+                    random_state = npr.randint(1, 999999999)
+                    subsampler = dazer.Subsampler(df, keep_ratio_columns, allowed_deviation=allowed_deviation)
+                    df_test = subsampler.extract_test(test_size=test_ratio, random_state=random_state)
+                    if df_test is None:
+                        continue # next attempt
+                    df_test.to_csv(os.path.join(folder_test, f'type=test;ratio={str(test_ratio)};iteration_random_state={seed};random_state={random_state}.tsv'), sep='\t')
+                    deviations['test'][seed] = subsampler.get_deviation_list()
+                    break # attempt successfull
+
+                assert attempt < utils.ATTEMPTS
+                # TODO proper error
+
+            folder_train = utils.get_session_subsample_train_folder(session, filename, subsample_id)
+            Path(folder_train).mkdir(parents=True, exist_ok=True)
             
-        ### SUBSAMPLING DONE ABOVE, FORMAT OUTPUT BELOW
-        
-        # train data
-        folder_train = utils.get_session_subsample_train_folder(session, filename, subsample_id)
-        data_all_random_iterations = []
-        for iteration_state in iteration_random_states:
-            ratios_data = {}
-            for file in os.listdir(folder_train):
-                if f'iteration_random_state={iteration_state}' not in file:
-                    continue
+            for seed in iteration_random_states:
+                npr.seed(seed)
+                for attempt in range(1, utils.ATTEMPTS+1):
+                    random_state = npr.randint(1, 999999999)
+                    for ratio in ratios:
+                        df_train = subsampler.subsample(ratio, random_state)
+                        if df_train is None:
+                            # jump to next attempt (random state)
+                            break
+                        df_train.to_csv(os.path.join(folder_train, f'type=train;ratio={str(ratio)};iteration_random_state={seed};random_state={random_state}.tsv'), sep='\t')
+                        deviations['test'][seed] = subsampler.get_deviation_list()
+
+                    if ratio == 1:
+                        break
+                assert attempt < utils.ATTEMPTS
+                # TODO proper error
+                
+            ### SUBSAMPLING DONE ABOVE, FORMAT OUTPUT BELOW
+            print('Subsampling done, now format output')
+            # train data
+            folder_train = utils.get_session_subsample_train_folder(session, filename, subsample_id)
+            data_all_random_iterations = []
+            for iteration_state in iteration_random_states:
+                print('iteration_state', iteration_state)
+                ratios_data = {}
+                for file in os.listdir(folder_train):
+                    if f'iteration_random_state={iteration_state}' not in file:
+                        continue
+                    for param in file.split(';'):
+                        key, value = param.split('=')
+                        if key == 'ratio':
+                            ratios_data[value] = file
+                data = {}
+                for ratio, path in ratios_data.items():
+                    df = utils.read_file(os.path.join(folder_train, path))
+                    data[f'train:{ratio}'] = {}
+                    for col in keep_ratio_columns:
+                        data[f'train:{ratio}'][col] = df[col].value_counts().to_dict()
+                            
+                # test data
+                folder_test = utils.get_session_subsample_test_folder(session, filename, subsample_id)
+                file = os.listdir(folder_test)[0]
+                test_ratio = ''
                 for param in file.split(';'):
                     key, value = param.split('=')
                     if key == 'ratio':
-                        ratios_data[value] = file
-            data = {}
-            for ratio, path in ratios_data.items():
-                df = utils.read_file(os.path.join(folder_train, path))
-                data[f'train:{ratio}'] = {}
+                        test_ratio = value
+                df = utils.read_file(os.path.join(folder_test, file))
+                data[f'test:{test_ratio}'] = {}
                 for col in keep_ratio_columns:
-                    data[f'train:{ratio}'][col] = df[col].value_counts().to_dict()
-                        
-            # test data
-            folder_test = utils.get_session_subsample_test_folder(session, filename, subsample_id)
-            file = os.listdir(folder_test)[0]
-            test_ratio = ''
-            for param in file.split(';'):
-                key, value = param.split('=')
-                if key == 'ratio':
-                    test_ratio = value
-            df = utils.read_file(os.path.join(folder_test, file))
-            data[f'test:{test_ratio}'] = {}
-            for col in keep_ratio_columns:
-                data[f'test:{test_ratio}'][col] = df[col].value_counts().to_dict()
+                    data[f'test:{test_ratio}'][col] = df[col].value_counts().to_dict()
+                
+                # reformat data for plotting
+                data_reformat = {col: {} for col in keep_ratio_columns}
+                for ratio_category, ratio_data in data.items():
+                    for keep_ratio_col, value_counts in ratio_data.items():
+                        if 'test' in ratio_category:
+                            data_reformat[keep_ratio_col][ratio_category] = value_counts
+                        else:
+                            ratio = ratio_category.split(':')[1]
+                            data_reformat[keep_ratio_col][ratio] = value_counts
+                data_all_random_iterations.append(data_reformat)
+                
+            print('creating mean dict', data_all_random_iterations)
+            mean_dict = defaultdict(lambda: defaultdict(dict))
+            for key, mean in merge_flat_dicts([flatten_dict(d) for d in data_all_random_iterations]).items():
+                print('key', key)
+                feature, ratio, value = key.split('_')
+                mean_dict[feature][ratio][value] = mean
             
-            # reformat data for plotting
-            data_reformat = {col: {} for col in keep_ratio_columns}
-            for ratio_category, ratio_data in data.items():
-                for keep_ratio_col, value_counts in ratio_data.items():
-                    if 'test' in ratio_category:
-                        data_reformat[keep_ratio_col][ratio_category] = value_counts
-                    else:
-                        ratio = ratio_category.split(':')[1]
-                        data_reformat[keep_ratio_col][ratio] = value_counts
-            data_all_random_iterations.append(data_reformat)
+            # get categorical columns
+            categorical_columns = df.columns[~df.columns.isin(df._get_numeric_data().columns)]
+            print('categorical_columns', categorical_columns)
+            unique_values = {}
+            for col in categorical_columns:
+                unique_values[col] = df[col].dropna().unique().tolist()
+                
+            ### RESULT FORMATTING DONE
             
-        mean_dict = defaultdict(lambda: defaultdict(dict))
-        for key, mean in merge_flat_dicts([flatten_dict(d) for d in data_all_random_iterations]).items():
-            feature, ratio, value = key.split('_')
-            mean_dict[feature][ratio][value] = mean
-        
-        # get categorical columns
-        categorical_columns = df.columns[~df.columns.isin(df._get_numeric_data().columns)]
-        unique_values = {}
-        for col in categorical_columns:
-            unique_values[col] = df[col].dropna().unique().tolist()
+            ### END move this to standalone task
             
-        ### RESULT FORMATTING DONE
-        
-        ### END move this to standalone task
-        
-        # test_file = os.listdir(get_session_subsample_test_folder(session, filename, subsample_id))
-        # train_files = os.listdir(get_session_subsample_train_folder(session, filename, subsample_id))
-            
-        models.Subsampling.objects.create(
-            session=session_obj,
-            file=file_obj,
-            subsample_id=subsample_id,
-            keep_ratio_columns=json.dumps(keep_ratio_columns),
-            ratios=json.dumps(ratios_data),
-            iteration_random_states=json.dumps(iteration_random_states),
-            test_ratio=test_ratio,
-            allowed_deviation=allowed_deviation,
-            result_formatted =json.dumps({'data': dict(mean_dict), 'filename': filename, 'ratios': ratios, 'testLabel': f'test:{test_ratio}', 'deviations': deviations})
-            )
+            # test_file = os.listdir(get_session_subsample_test_folder(session, filename, subsample_id))
+            # train_files = os.listdir(get_session_subsample_train_folder(session, filename, subsample_id))
+                
+            models.Subsampling.objects.create(
+                session=session_obj,
+                file=file_obj,
+                subsample_id=subsample_id,
+                keep_ratio_columns=json.dumps(keep_ratio_columns),
+                ratios=json.dumps(ratios_data),
+                iteration_random_states=json.dumps(iteration_random_states),
+                test_ratio=test_ratio,
+                allowed_deviation=allowed_deviation,
+                result_formatted =json.dumps({'data': dict(mean_dict), 'filename': filename, 'ratios': ratios, 'testLabel': f'test:{test_ratio}', 'deviations': deviations})
+                )
+        except Exception as e:
+            print(e)
             
         return Response()
         

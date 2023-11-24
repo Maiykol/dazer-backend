@@ -5,7 +5,7 @@ import string
 import numpy as np
 
 
-ATTEMPTS = 300
+ATTEMPTS = 1000
 
 
 def generate_id(size):
