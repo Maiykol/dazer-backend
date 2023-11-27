@@ -183,6 +183,7 @@ class Subsample(APIView):
             ratios = request.data.get('ratios', [.5, 1])
             n_random_states = int(request.data.get('nRandomStates', 1))
             allowed_deviation = float(request.data.get('allowedDeviation', 0.2))
+            allow_zero_occurrence = request.data.get('allowZeroOccurrence',False)
             deviations = {'test': {}, 'train': {}}
 
             iteration_random_states = random_states[:n_random_states]
@@ -200,7 +201,7 @@ class Subsample(APIView):
                 npr.seed(seed)
                 for attempt in range(1, utils.ATTEMPTS+1):
                     random_state = npr.randint(1, 999999999)
-                    subsampler = dazer.Subsampler(df, keep_ratio_columns, allowed_deviation=allowed_deviation)
+                    subsampler = dazer.Subsampler(df, keep_ratio_columns, allowed_deviation=allowed_deviation, allow_zero_occurrence=allow_zero_occurrence)
                     df_test = subsampler.extract_test(test_size=test_ratio, random_state=random_state)
                     if df_test is None:
                         continue # next attempt
@@ -232,7 +233,7 @@ class Subsample(APIView):
                 # TODO proper error
                 
             ### SUBSAMPLING DONE ABOVE, FORMAT OUTPUT BELOW
-            print('Subsampling done, now format output')
+
             # train data
             folder_train = utils.get_session_subsample_train_folder(session, filename, subsample_id)
             data_all_random_iterations = []
