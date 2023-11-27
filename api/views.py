@@ -454,7 +454,7 @@ class SubsampleDelete(APIView):
 def delete_file(session, filename):
     file_obj = models.File.objects.get(session__session_id=session, filename=filename)
     
-    for subsample in file_obj.subsamples:
+    for subsample in file_obj.subsamples.all():
         delete_subsample_task(subsample.subsample_id)
     
     session_files_folder = utils.get_session_files_folder(session)
@@ -474,7 +474,7 @@ class FileDelete(APIView):
 def delete_session(session):
     session_obj = models.Session.objects.get(session_id=session)
     
-    for file_obj in session_obj.files:
+    for file_obj in session_obj.files.all():
         delete_file(file_obj.filename)
     
     session_files_folder = utils.get_session_files_folder(session)
