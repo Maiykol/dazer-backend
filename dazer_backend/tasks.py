@@ -25,6 +25,7 @@ def classification_task(task_id):
         target_column = parameters['target_column']
         target_value = str(parameters['target_value']).lower()
         cv = parameters['cv']
+        scoring = parameters['scoring']
         random_states = parameters['random_states']
         filename = subsample_obj.file.filename
         session = subsample_obj.session.session_id
@@ -76,7 +77,7 @@ def classification_task(task_id):
                 
                 for random_state in random_states:
                     model_path = os.path.join(model_folder_path, f'ratio={ratio};random_state={random_state};random_state_subsample_iteration={subsample_iteration_random_state}.joblib')
-                    model, evaluation = classifier.train_test_random_forest(random_state=random_state, model_path=model_path, scoring='f1', cv=cv, n_jobs=10)
+                    model, evaluation = classifier.train_test_random_forest(random_state=random_state, model_path=model_path, scoring=scoring, cv=cv, n_jobs=10)
                     evaluation.update(classifier.classifier_prediction_evaluation(models=[model])[0])
                     evaluation.update({'random_state': random_state, 'random_state_subsample_iteration': int(subsample_iteration_random_state), 'ratio': float(ratio)})
                     evaluation_list.append(evaluation)

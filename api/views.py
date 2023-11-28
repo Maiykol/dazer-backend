@@ -341,6 +341,7 @@ class Classification(APIView):
         target_value = request.data.get('targetValue')
         cv = int(request.data.get('crossValidationK', 2))
         n_random_states = int(request.data.get('nRandomStates', 1))
+        scoring = request.data.get('scoring', 'f1')
         
         if not (1 <= n_random_states <= 5):
             return HttpResponseBadRequest('nRandomStates must be a value between 1 and 5')
@@ -362,14 +363,13 @@ class Classification(APIView):
                 'target_column': target_column,
                 'target_value': target_value,
                 'cv': cv,
-                'random_states': random_states
+                'random_states': random_states,
+                'scoring': scoring,
                 }),
         )
         
         # add task to asynchronous queue
         tasks.classification_task.delay(task_token)
-        
-        rq_tasks.enqueue
         
         return Response({'classification_task_id': classification_task_id})
     
@@ -447,7 +447,7 @@ def delete_subsample_task(subsample_id):
     subsample_obj.delete()
 
 
-class SubsampleDelete(APIView):    
+class SubsampleDelete(APIView):
     
    def get(self, request, subsample_id):
         delete_subsample_task(subsample_id)
