@@ -368,6 +368,9 @@ class Classification(APIView):
         
         # add task to asynchronous queue
         tasks.classification_task.delay(task_token)
+        
+        rq_tasks.enqueue
+        
         return Response({'classification_task_id': classification_task_id})
     
     
@@ -434,7 +437,7 @@ class ClassificationDelete(APIView):
 def delete_subsample_task(subsample_id):
     subsample_obj = models.Subsampling.objects.get(subsample_id=subsample_id)
     
-    for classifcation_task in subsample_obj.classification:
+    for classifcation_task in subsample_obj.classification.all():
         delete_classification_task(classifcation_task.classification_task_id)
     
     subsample_folder = utils.get_session_subsample_task_folder(subsample_obj.session.session_id, subsample_obj.file.filename, subsample_id)
